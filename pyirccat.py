@@ -24,17 +24,24 @@ class BindException(Exception):
 class IRCClient(object):
     '''Simple IRC client - supports PRIVMSG, JOIN and QUIT commands'''
 
-    def __init__(self, host, port, channel, nick, ssl_mode=False, ssl_no_verify=False, password=None):
+    def __init__(self, host, port, channels, nick, default, ssl_mode=False, ssl_no_verify=False, password=None):
         self.host = host
         self.port = port
-        self.channel = channel
         self.nick = nick
+        self.default = default
         self.ssl_mode = ssl_mode
         self.ssl_no_verify = ssl_no_verify
         self.password = password
-
         self._connected = False
         self.realname = 'pyirccat'
+        self.channel = []
+        for channel in channels:
+            if ":" in channel:
+                self.channel.append({'channel' : channel.split(":")[0], 
+                                     'password': channel.split(":")[1]})
+            else:
+                self.channel.append({'channel' : channel,
+                                     'password': False})
 
     def __repr__(self):
         return '<%s(%s:%s(%s) channel=#%s nick=%s)>' % (
@@ -77,9 +84,8 @@ class IRCClient(object):
         # send nick and user commands, then join the channel and announce presence
         self._send('NICK %s' % self.nick)
         self._send('USER %s 8 * :%s' % (self.nick, self.realname))
-
-        self.join(self.channel)
-        self.privmsg(self.channel, 'Bot active')
+        for channel in self.channel:
+            self.join(channel['channel'],channel['password'])
 
     def interact(self):
         '''
@@ -111,36 +117,64 @@ class IRCClient(object):
         if not raw:
             return None
 
-        r = re.match(r'#([\w\d_\-]+)\s{1}(.*)', raw)
-        if r is None:
-            return self.channel, raw
-
         # we wanted it sent to some other channel
-        channel, msg = r.groups()
-        return channel, msg
+        r = re.match(r'#([\w\d_\-]+)\s{1}(.*)', raw)
+        if r is not None:
+            what = 'channel'
+            dest, msg = r.groups()
+            return what, dest, msg
+
+        # we wanted it sent to a user
+        r = re.match(r'@([\w\d_\-]+)\s{1}(.*)', raw)
+        if r is not None:
+            what = 'user'
+            dest, msg = r.groups()
+            return what, dest, msg
+
+        # If no channel / user is specied send to connected channel
+        return 'channels', self.channel, raw
 
     def received(self, msg):
         print '< %s' % msg.strip()
 
     def send(self, d):
-        '''Sends a message to a channel
+        '''Sends a message to a channel or user
         Expected format: "#channel message here"
+                         "@user message here
         '''
         parsed = self.parse_message(d)
 
         if parsed is not None:
             # message was valid
-            channel, msg = parsed
+            what, dest, msg = parsed
             # send message to channel
-            self.privmsg(channel, msg)
+            self.privmsg(what, dest, msg)
 
     # IRC commands
     # see RFC2812: https://tools.ietf.org/html/rfc2812
-    def privmsg(self, channel, msg):
-        self._send('PRIVMSG #%s :%s' % (channel, msg))
+    def privmsg(self, what, dest, msg):
+        # Send to single channel
+        if what == 'channel':
+            self._send('PRIVMSG #%s :%s' % (dest, msg))
+        # PM user
+        elif what == 'user':
+            self._send('PRIVMSG %s :%s' % (dest, msg))
+        if what == 'channels':
+            # If default chan not set, broadcast to all channels
+            if self.default == False:
+                for channel in dest:
+                    self._send('PRIVMSG #%s :%s' % (channel['channel'], msg))
+            # Send to default channel
+            else:
+                self._send('PRIVMSG #%s :%s' % (self.default, msg))
+        else:
+            print '[error PRIVMSG]'
 
-    def join(self, channel):
-        self._send('JOIN #%s' % self.channel)
+    def join(self, channel, channel_password=None):
+	if channel_password is not None:
+            self._send('JOIN #%s %s' % (channel, channel_password))
+	else:
+            self._send('JOIN #%s' % (self.channel))
 
     def quit(self, msg=None):
         self._connected = False
@@ -204,13 +238,14 @@ class Listener(object):
 
 class IRCClientWorker(threading.Thread):
 
-    def __init__(self, host, port, channel, nickname, queue, ssl_mode=False, ssl_verify=True, password=None):
+    def __init__(self, host, port, channel, nickname, queue, default=False, ssl_mode=False, ssl_verify=True, password=None):
         threading.Thread.__init__(self)
 
         self.host = host
         self.port = port
         self.channel = channel
         self.nickname = nickname
+        self.default = default
         self.ssl_mode = ssl_mode
         self.ssl_verify = ssl_verify
         self.password = password
@@ -220,7 +255,7 @@ class IRCClientWorker(threading.Thread):
 
         self.process = IRCClient(
             self.host, self.port, self.channel,
-            self.nickname, self.ssl_mode, self.ssl_verify, self.password,
+            self.nickname, self.default, self.ssl_mode, self.ssl_verify, self.password,
         )
 
     def stop(self):
@@ -303,10 +338,9 @@ class MainWorker(threading.Thread):
     def run(self):
 
         q = Queue()
-
         t_irc = IRCClientWorker(
             self.parser.host, self.parser.port, self.parser.channel,
-            self.parser.nickname, q, self.parser.ssl, self.parser.ssl_no_verify,
+            self.parser.nickname, q, self.parser.default, self.parser.ssl, self.parser.ssl_no_verify,
             self.parser.password
         )
 
@@ -339,8 +373,11 @@ def cli_args():
     parser.add_argument('--password', dest='password', type=str, help='IRC server password')
     parser.add_argument('-n', '--nickname', dest='nickname', default='pyirccat', type=str,
         help='Nickname of bot')
-    parser.add_argument('-c', '--channel', dest='channel', required=True, type=str,
-        help='Channel to join, without # prefix')
+    parser.add_argument('-c', '--channel', dest='channel', required=True, type=str, action='append',
+        help='Channel to join, without # prefix, if channel has a password seperate with :')
+    parser.add_argument('-d', '--default', dest='default', required=False, type=str,
+        help='Select default channel to send PRIVMSG to.\
+              If not set messages without channel specfied will be broadcast to all connected channels')
     parser.add_argument('-ba', '--bind-addr', dest='bind_addr', required=True, type=str,
         help='IP to bind to')
     parser.add_argument('-bp', '--bind-port', dest='bind_port', required=True, type=int,
