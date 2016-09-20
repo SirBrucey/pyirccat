@@ -29,7 +29,12 @@ optional arguments:
   -n NICKNAME, --nickname NICKNAME
                         Nickname of bot
   -c CHANNEL, --channel CHANNEL
-                        Channel to join, without # prefix
+                        Channel to join, without # prefix, if channel has a
+                        password seperate with :
+  -d DEFAULT, --default DEFAULT
+                        Select default channel to send PRIVMSG to. If not set
+                        messages without channel specfied will be broadcast to
+                        all connected channels                        
   -ba BIND_ADDR, --bind-addr BIND_ADDR
                         IP to bind to
   -bp BIND_PORT, --bind-port BIND_PORT
@@ -42,7 +47,7 @@ optional arguments:
 Example:
 
 ```bash
-> python pyirccat.py -s irc.freenode.net -p 6667 -n mybotnickname -c mychannel -ba 0.0.0.0 -bp 4444
+> python pyirccat.py -s irc.freenode.net -p 6667 -n mybotnickname -c mychannel -c otherchannel:channelpassword -ba 0.0.0.0 -bp 4444
 ```
 
 then send some data to it (telnet, netcat, whatever - examples shown use netcat)
@@ -52,13 +57,21 @@ then send some data to it (telnet, netcat, whatever - examples shown use netcat)
 > tail -f /var/log/www/error.log | netcat localhost 4444
 ```
 
+(Broadcast Hello World to all connected channels / default channel)
+
 You can also prefix output with an arbitary channel to send to, e.g. -
 
 ```bash
 > echo "#someotherchannel foo" | netcat -q0 localhost 4444
 ```
 
-(would send to #someotherchannel even if you invoked the bot with a channel other than #someotherchannel)
+(would send to #someotherchannel even if you invoked the bot with a channel other than #someotherchannel WARNING: If channel has mode +n you will need to make sure you are connected to #someotherchannel to send message)
+
+```bash
+> echo "@user foo" | netcat -q0 localhost 4444
+```
+
+(would send to user even if you invoked the bot with a channel other than #someotherchannel)
 
 #### Installation
 
