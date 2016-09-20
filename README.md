@@ -71,7 +71,7 @@ You can also prefix output with an arbitary channel to send to, e.g. -
 > echo "@user foo" | netcat -q0 localhost 4444
 ```
 
-(would send to user even if you invoked the bot with a channel other than #someotherchannel)
+(would send PRIVMSG to user instead of channel)
 
 #### Installation
 
