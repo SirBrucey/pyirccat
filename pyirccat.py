@@ -6,7 +6,7 @@ import socket
 import sys
 import threading
 from time import sleep
-from os import getpid
+from os import getpid, fork
 
 # ext. dependencies
 from OpenSSL import SSL
@@ -356,6 +356,10 @@ class MainWorker(threading.Thread):
         t_irc.start()
         t_listener.start()
 
+        # Fork to background so it runs as a service
+        if fork():
+            sys.exit()
+
         while True:
             # if either thread quits, stop everything
             sleep(0.25)
@@ -391,7 +395,6 @@ def cli_args():
 
 
 if __name__ == '__main__':
-
     parser = cli_args().parse_args()
 
     main_worker = MainWorker(parser)
