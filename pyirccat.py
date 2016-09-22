@@ -395,7 +395,7 @@ def cli_args():
 
 if __name__ == '__main__':
     parser = cli_args().parse_args()
-    if not any(parser.default in chan for chan in parser.channel) and (parser.default != None):
+    if (parser.default != None) and (not any(parser.default in chan for chan in parser.channel)):
         sys.exit("You must connect to the default channel")
     main_worker = MainWorker(parser)
     main_worker.daemon = True
