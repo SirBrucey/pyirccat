@@ -6,7 +6,7 @@ import socket
 import sys
 import threading
 from time import sleep
-from os import getpid, fork
+from os import getpid
 
 # ext. dependencies
 from OpenSSL import SSL
@@ -153,22 +153,25 @@ class IRCClient(object):
     # IRC commands
     # see RFC2812: https://tools.ietf.org/html/rfc2812
     def privmsg(self, what, dest, msg):
-        # Send to single channel
-        if what == 'channel':
-            self._send('PRIVMSG #%s :%s' % (dest, msg))
-        # PM user
-        elif what == 'user':
-            self._send('PRIVMSG %s :%s' % (dest, msg))
-        if what == 'channels':
-            # If default chan not set, broadcast to all channels
-            if self.default == False:
-                for channel in dest:
-                    self._send('PRIVMSG #%s :%s' % (channel['channel'], msg))
-            # Send to default channel
+        # Allow for multiline messages
+        lines = msg.split("\n")
+        for line in lines:
+            # Send to single channel
+            if what == 'channel':
+                self._send('PRIVMSG #%s :%s' % (dest, line))
+            # PM user
+            elif what == 'user':
+                self._send('PRIVMSG %s :%s' % (dest, line))
+            elif what == 'channels':
+                # If default chan not set, broadcast to all channels
+                if self.default == None:
+                    for channel in dest:
+                        self._send('PRIVMSG #%s :%s' % (channel['channel'], line))
+                # Send to default channel
+                else:
+                    self._send('PRIVMSG #%s :%s' % (self.default, line))
             else:
-                self._send('PRIVMSG #%s :%s' % (self.default, msg))
-        else:
-            print '[error PRIVMSG]'
+                print '[error PRIVMSG]'
 
     def join(self, channel, channel_password=None):
 	if channel_password is not None:
@@ -336,7 +339,7 @@ class MainWorker(threading.Thread):
         return self._stop.isSet()
 
     def run(self):
-
+        
         q = Queue()
         t_irc = IRCClientWorker(
             self.parser.host, self.parser.port, self.parser.channel,
@@ -355,10 +358,6 @@ class MainWorker(threading.Thread):
         # start them
         t_irc.start()
         t_listener.start()
-
-        # Fork to background so it runs as a service
-        if fork():
-            sys.exit()
 
         while True:
             # if either thread quits, stop everything
@@ -396,7 +395,8 @@ def cli_args():
 
 if __name__ == '__main__':
     parser = cli_args().parse_args()
-
+    if not any(parser.default in chan for chan in parser.channel) and (parser.default != None):
+        sys.exit("You must connect to the default channel")
     main_worker = MainWorker(parser)
     main_worker.daemon = True
     main_worker.start()
